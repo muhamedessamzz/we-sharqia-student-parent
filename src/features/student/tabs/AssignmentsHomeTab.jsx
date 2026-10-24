@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, Calendar, Clock, CheckCircle2, AlertTriangle, Zap, BookOpen } from 'lucide-react';
 import { TYPE_CONFIG } from '../constants';
+import {
+  formatDateTimeArabic,
+  calculateDurationArabic,
+  isDeadlinePassed
+} from '../../../utils/dateUtils';
 
 export default function AssignmentsHomeTab({
   assignments = [],
@@ -36,7 +41,7 @@ export default function AssignmentsHomeTab({
 
       {/* Filter Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-        <h3 className="text-base font-black text-slate-900">التكليفات الدراسية</h3>
+        <h3 className="text-base font-black text-slate-900">التكليفات والاختبارات القصيرة</h3>
         <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200 shadow-xs">
           <button
             onClick={() => setTypeFilter('all')}
@@ -52,15 +57,7 @@ export default function AssignmentsHomeTab({
               typeFilter === 'quiz' ? 'bg-[#5C2C90] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            اختبارات قصيرة
-          </button>
-          <button
-            onClick={() => setTypeFilter('task')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              typeFilter === 'task' ? 'bg-[#5C2C90] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            مهام عملية
+            اختبارات قصيرة ({assignments.filter(a => (a.assignmentType || '').toLowerCase() === 'quiz').length})
           </button>
           <button
             onClick={() => setTypeFilter('assignment')}
@@ -68,7 +65,7 @@ export default function AssignmentsHomeTab({
               typeFilter === 'assignment' ? 'bg-[#5C2C90] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
-            واجبات
+            واجبات وتكليفات ({assignments.filter(a => (a.assignmentType || '').toLowerCase() !== 'quiz').length})
           </button>
         </div>
       </div>
@@ -77,7 +74,7 @@ export default function AssignmentsHomeTab({
       <div className="grid grid-cols-1 gap-3">
         {filteredAssignments.length === 0 ? (
           <div className="bg-white rounded-2xl p-10 border border-slate-200 text-center text-slate-400">
-            لا توجد تكليفات حاليًا.
+            لا توجد تكليفات أو اختبارات في هذا القسم حاليًا.
           </div>
         ) : (
           filteredAssignments.map((asg) => {
@@ -85,7 +82,9 @@ export default function AssignmentsHomeTab({
             const isDone = prog?.status === 4 || prog?.status === 'done';
             const isGraded = prog?.isGraded;
             const isReturned = prog?.status === 1 && prog?.teacherEncouragementMsg;
+            const isQuiz = (asg.assignmentType || '').toLowerCase() === 'quiz';
             const typeCfg = TYPE_CONFIG[asg.assignmentType || 'assignment'] || TYPE_CONFIG.assignment;
+            const deadlinePassed = isDeadlinePassed(asg.dueDate);
 
             return (
               <div
@@ -98,7 +97,7 @@ export default function AssignmentsHomeTab({
                     : 'border-r-4 border-r-[#5C2C90] border-slate-200/80'
                 }`}
               >
-                <div className="space-y-1">
+                <div className="space-y-1.5 flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${typeCfg.color}`}>
                       {typeCfg.icon} {typeCfg.label}
@@ -109,8 +108,8 @@ export default function AssignmentsHomeTab({
                         الدرجة: {prog.manualGrade ?? prog.autoScore} / 20 ⭐
                       </span>
                     ) : isDone ? (
-                      <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700">
-                        تم التسليم
+                      <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-emerald-50 text-emerald-700 flex items-center gap-1">
+                        <CheckCircle2 size={12} /> تم التسليم
                       </span>
                     ) : isReturned ? (
                       <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-amber-100 text-amber-800 flex items-center gap-1">
@@ -118,19 +117,66 @@ export default function AssignmentsHomeTab({
                       </span>
                     ) : prog ? (
                       <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-pink-50 text-[#E4007C]">
-                        قيد التنفيذ
+                        قيد الحل
                       </span>
                     ) : (
                       <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold bg-slate-100 text-slate-600">
                         جديد
                       </span>
                     )}
+
+                    {prog?.isLate && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-rose-100 text-rose-800">
+                        متأخر
+                      </span>
+                    )}
                   </div>
 
-                  <p className="text-xs text-slate-500">
-                    {asg.suggestedMinutes} دقيقة مقترحة · {asg.stages?.length || 1} أسئلة/مراحل
-                    {asg.targetClassroom ? ` · مخصص لفصل ${asg.targetClassroom}` : ' · متاح للجميع'}
-                  </p>
+                  {/* Timing & Classroom details */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                    {isQuiz ? (
+                      <span className="text-[#E4007C] font-bold flex items-center gap-1">
+                        <Zap size={12} />
+                        <span>مدة الاختبار: {asg.suggestedMinutes || 15} دقيقة من بدء الحل</span>
+                      </span>
+                    ) : (
+                      <span className="text-slate-600 font-bold flex items-center gap-1">
+                        <BookOpen size={12} />
+                        <span>تكليف تطبيقي</span>
+                      </span>
+                    )}
+
+                    {asg.dueDate && (
+                      <span className={`flex items-center gap-1 ${
+                        deadlinePassed && !isDone ? 'text-rose-600 font-extrabold' : 'text-slate-600'
+                      }`}>
+                        <Calendar size={12} className="text-[#5C2C90]" />
+                        <span>الديدلاين: {formatDateTimeArabic(asg.dueDate)}</span>
+                        {deadlinePassed && !isDone && (
+                          <span className="text-[10px] bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.2 rounded font-black">
+                            انتهت المهلة
+                          </span>
+                        )}
+                      </span>
+                    )}
+
+                    {asg.targetClassroom && (
+                      <span className="text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.2 rounded text-[11px] font-bold font-mono">
+                        فصل {asg.targetClassroom}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Student Duration Metrics if Done */}
+                  {isDone && prog?.startedAtUtc && prog?.finishedAtUtc && (
+                    <div className="text-[11px] text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100 flex flex-wrap items-center gap-3">
+                      <span>بدأ: <strong className="font-mono text-slate-800">{formatDateTimeArabic(prog.startedAtUtc)}</strong></span>
+                      <span>سلّم: <strong className="font-mono text-slate-800">{formatDateTimeArabic(prog.finishedAtUtc)}</strong></span>
+                      <span className="text-[#5C2C90] font-bold">
+                        استغرق: {calculateDurationArabic(prog.startedAtUtc, prog.finishedAtUtc)}
+                      </span>
+                    </div>
+                  )}
 
                   {isReturned && (
                     <p className="text-xs text-amber-700 font-bold bg-amber-50 px-2.5 py-1 rounded-lg inline-block border border-amber-200">
@@ -147,7 +193,7 @@ export default function AssignmentsHomeTab({
 
                 <button
                   onClick={() => onStartAssignment(asg)}
-                  className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap self-stretch sm:self-auto ${
+                  className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer whitespace-nowrap self-stretch sm:self-auto shrink-0 ${
                     isReturned
                       ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-sm'
                       : isDone
@@ -155,7 +201,15 @@ export default function AssignmentsHomeTab({
                       : 'bg-[#5C2C90] hover:bg-[#4a2175] text-white shadow-sm'
                   }`}
                 >
-                  {isReturned ? 'تعديل وإعادة التسليم' : isDone ? 'عرض الحل' : prog ? 'استكمال الحل' : 'بدء التكليف'}
+                  {isReturned
+                    ? 'تعديل وإعادة التسليم'
+                    : isDone
+                    ? 'عرض الإجابات'
+                    : prog
+                    ? 'استكمال الحل'
+                    : isQuiz
+                    ? 'بدء الاختبار الآن ⚡'
+                    : 'بدء التكليف 📝'}
                 </button>
               </div>
             );
@@ -165,3 +219,4 @@ export default function AssignmentsHomeTab({
     </div>
   );
 }
+
